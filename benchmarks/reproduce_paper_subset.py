@@ -5,12 +5,13 @@ UCI datasets: 3-NN, a random 50/50 train/test split, and 10 repeated runs.
 
 It is intentionally labelled a partial reproduction rather than an exact
 replication. The paper does not publish the random seeds, sampled pair stream,
-or all tuning details needed to recreate Table 1 bit-for-bit.
+or all implementation details needed to recreate Table 1 bit-for-bit.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -20,6 +21,7 @@ from rdml import RDML, accuracy_score, knn_predict
 
 FloatMatrix = NDArray[np.float64]
 IntLabels = NDArray[np.int64]
+UpdateMethod = Literal["exact", "paper"]
 
 N_RUNS = 10
 N_NEIGHBORS = 3
@@ -40,12 +42,14 @@ class PaperReference:
 
 @dataclass(frozen=True)
 class ReproductionResult:
-    """Mean and sample standard deviation of repeated classification errors."""
+    """Mean and sample standard deviation for all diagnostic metrics."""
 
     euclidean_mean: float
     euclidean_std: float
-    rdml_mean: float
-    rdml_std: float
+    exact_mean: float
+    exact_std: float
+    paper_safe_mean: float
+    paper_safe_std: float
 
 
 def _split_half(
@@ -68,10 +72,37 @@ def _classification_error(y_true: IntLabels, y_pred: NDArray[np.generic]) -> flo
     return 1.0 - accuracy_score(y_true, y_pred)
 
 
+def _rdml_error(
+    X_train: FloatMatrix,
+    y_train: IntLabels,
+    X_test: FloatMatrix,
+    y_test: IntLabels,
+    *,
+    seed: int,
+    update_method: UpdateMethod,
+) -> float:
+    """Fit one RDML variant and return its 3-NN classification error."""
+    model = RDML(
+        learning_rate=LEARNING_RATE,
+        max_iter=MAX_ITER,
+        margin=MARGIN,
+        random_state=seed,
+        update_method=update_method,
+    ).fit(X_train, y_train)
+    predictions = knn_predict(
+        model.transform(X_train),
+        y_train,
+        model.transform(X_test),
+        n_neighbors=N_NEIGHBORS,
+    )
+    return _classification_error(y_test, predictions)
+
+
 def evaluate_dataset(X: FloatMatrix, y: IntLabels) -> ReproductionResult:
-    """Evaluate Euclidean and paper-update RDML under the published split protocol."""
+    """Evaluate Euclidean, exact RDML, and the singular-safe paper update."""
     euclidean_errors: list[float] = []
-    rdml_errors: list[float] = []
+    exact_errors: list[float] = []
+    paper_safe_errors: list[float] = []
 
     for seed in range(N_RUNS):
         X_train, y_train, X_test, y_test = _split_half(X, y, seed=seed)
@@ -83,31 +114,37 @@ def evaluate_dataset(X: FloatMatrix, y: IntLabels) -> ReproductionResult:
             n_neighbors=N_NEIGHBORS,
         )
         euclidean_errors.append(_classification_error(y_test, euclidean_pred))
-
-        model = RDML(
-            learning_rate=LEARNING_RATE,
-            max_iter=MAX_ITER,
-            margin=MARGIN,
-            random_state=seed,
-            update_method="paper",
-        ).fit(X_train, y_train)
-        transformed_train = model.transform(X_train)
-        transformed_test = model.transform(X_test)
-        rdml_pred = knn_predict(
-            transformed_train,
-            y_train,
-            transformed_test,
-            n_neighbors=N_NEIGHBORS,
+        exact_errors.append(
+            _rdml_error(
+                X_train,
+                y_train,
+                X_test,
+                y_test,
+                seed=seed,
+                update_method="exact",
+            )
         )
-        rdml_errors.append(_classification_error(y_test, rdml_pred))
+        paper_safe_errors.append(
+            _rdml_error(
+                X_train,
+                y_train,
+                X_test,
+                y_test,
+                seed=seed,
+                update_method="paper",
+            )
+        )
 
     euclidean = np.asarray(euclidean_errors, dtype=np.float64)
-    rdml = np.asarray(rdml_errors, dtype=np.float64)
+    exact = np.asarray(exact_errors, dtype=np.float64)
+    paper_safe = np.asarray(paper_safe_errors, dtype=np.float64)
     return ReproductionResult(
         euclidean_mean=float(np.mean(euclidean)),
         euclidean_std=float(np.std(euclidean, ddof=1)),
-        rdml_mean=float(np.mean(rdml)),
-        rdml_std=float(np.std(rdml, ddof=1)),
+        exact_mean=float(np.mean(exact)),
+        exact_std=float(np.std(exact, ddof=1)),
+        paper_safe_mean=float(np.mean(paper_safe)),
+        paper_safe_std=float(np.std(paper_safe, ddof=1)),
     )
 
 
@@ -120,19 +157,26 @@ def _print_result(
     print(f"\n{name}")
     print("-" * len(name))
     print(
-        "This implementation: "
-        f"Euclidean {100 * result.euclidean_mean:.1f}% ± {100 * result.euclidean_std:.1f}; "
-        f"RDML {100 * result.rdml_mean:.1f}% ± {100 * result.rdml_std:.1f}"
+        "Euclidean:       "
+        f"{100 * result.euclidean_mean:.1f}% ± {100 * result.euclidean_std:.1f}"
     )
     print(
-        "Paper Table 1:       "
+        "RDML exact:      "
+        f"{100 * result.exact_mean:.1f}% ± {100 * result.exact_std:.1f}"
+    )
+    print(
+        "RDML paper-safe: "
+        f"{100 * result.paper_safe_mean:.1f}% ± {100 * result.paper_safe_std:.1f}"
+    )
+    print(
+        "Paper Table 1:   "
         f"Euclidean {reference.euclidean_mean:.1f}% ± {reference.euclidean_std:.1f}; "
         f"online-reg {reference.online_reg_mean:.1f}% ± {reference.online_reg_std:.1f}"
     )
 
 
 def main() -> None:
-    """Run the protocol-aligned partial reproduction."""
+    """Run the protocol-aligned partial reproduction and diagnostic comparison."""
     iris = load_iris()
     wine = load_wine()
 
@@ -155,9 +199,10 @@ def main() -> None:
     print(f"Protocol: {N_NEIGHBORS}-NN, 50/50 random split, {N_RUNS} runs")
     print(
         "RDML configuration: "
-        f"paper update, learning_rate={LEARNING_RATE}, max_iter={MAX_ITER}, margin={MARGIN}"
+        f"learning_rate={LEARNING_RATE}, max_iter={MAX_ITER}, margin={MARGIN}"
     )
     print("No feature standardization is applied.")
+    print("'paper-safe' denotes Theorem 6 plus this package's conservative singular-matrix rule.")
     print("Published values are context, not exact-regression targets.")
 
     for name, X, y, reference in datasets:
