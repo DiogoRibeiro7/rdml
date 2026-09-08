@@ -76,7 +76,7 @@ def project_psd(matrix: ArrayLike, *, epsilon: float = 0.0) -> FloatArray:
     eigenvalues, eigenvectors = np.linalg.eigh(symmetric)
     clipped = np.maximum(eigenvalues, float(epsilon))
     projected = (eigenvectors * clipped) @ eigenvectors.T
-    return 0.5 * (projected + projected.T)
+    return np.asarray(0.5 * (projected + projected.T), dtype=np.float64)
 
 
 def squared_mahalanobis(x: ArrayLike, y: ArrayLike, metric: ArrayLike) -> float:
@@ -198,7 +198,8 @@ class RDML:
         """Return a linear transform whose Euclidean metric equals ``metric``."""
         eigenvalues, eigenvectors = np.linalg.eigh(metric)
         safe_eigenvalues = np.maximum(eigenvalues, 0.0)
-        return eigenvectors * np.sqrt(safe_eigenvalues)
+        components = eigenvectors * np.sqrt(safe_eigenvalues)
+        return np.asarray(components, dtype=np.float64)
 
     def _require_fitted(self) -> None:
         """Raise when a fitted attribute is requested before ``fit``."""
