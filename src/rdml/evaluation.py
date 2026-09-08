@@ -101,7 +101,10 @@ def knn_predict(
 
     predictions: list[Any] = []
     for query in test:
-        squared_distances = np.sum((train - query) ** 2, axis=1, dtype=np.float64)
+        squared_distances = np.asarray(
+            np.sum((train - query) ** 2, axis=1, dtype=np.float64),
+            dtype=np.float64,
+        )
         neighbour_indices = np.argsort(squared_distances, kind="stable")[:resolved_neighbors]
         predictions.append(
             _majority_label(labels[neighbour_indices], squared_distances[neighbour_indices])
