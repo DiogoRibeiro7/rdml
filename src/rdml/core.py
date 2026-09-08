@@ -1,15 +1,13 @@
 """Core Regularized Distance Metric Learning implementation.
 
-The implementation follows Algorithm 1 from Jin, Wang, and Zhou (2009).  The
-first modernized implementation deliberately uses the exact positive
-semi-definite projection from the algorithm as a correctness reference.  The
-paper's faster approximate projection can then be implemented and tested
-against this baseline.
+The implementation follows Algorithm 1 from Jin, Wang, and Zhou (2009). The
+exact positive-semidefinite projection remains the correctness reference, while
+the paper's efficient adaptive rank-one update is available as an opt-in method.
 """
 
 from __future__ import annotations
 
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -17,6 +15,7 @@ from numpy.typing import ArrayLike, NDArray
 FloatArray: TypeAlias = NDArray[np.float64]
 LabelArray: TypeAlias = NDArray[Any]
 RandomState: TypeAlias = int | np.random.Generator | None
+UpdateMethod: TypeAlias = Literal["exact", "paper"]
 
 
 def _as_float_matrix(values: ArrayLike, *, name: str) -> FloatArray:
@@ -26,6 +25,18 @@ def _as_float_matrix(values: ArrayLike, *, name: str) -> FloatArray:
         raise ValueError(f"{name} must be a two-dimensional array.")
     if array.shape[0] == 0 or array.shape[1] == 0:
         raise ValueError(f"{name} must have at least one row and one column.")
+    if not np.all(np.isfinite(array)):
+        raise ValueError(f"{name} must contain only finite values.")
+    return array
+
+
+def _as_float_vector(values: ArrayLike, *, name: str) -> FloatArray:
+    """Return ``values`` as a finite one-dimensional float array."""
+    array = np.asarray(values, dtype=np.float64)
+    if array.ndim != 1:
+        raise ValueError(f"{name} must be a one-dimensional array.")
+    if array.size == 0:
+        raise ValueError(f"{name} must contain at least one value.")
     if not np.all(np.isfinite(array)):
         raise ValueError(f"{name} must contain only finite values.")
     return array
@@ -49,23 +60,26 @@ def _validate_positive_float(value: float, *, name: str) -> float:
     return numeric
 
 
+def _validate_positive_int(value: int, *, name: str) -> int:
+    """Validate a strictly positive integer parameter."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be an integer.")
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than zero.")
+    return value
+
+
+def _validate_update_method(value: str) -> UpdateMethod:
+    """Validate and narrow the requested update method."""
+    if value == "exact":
+        return "exact"
+    if value == "paper":
+        return "paper"
+    raise ValueError("update_method must be either 'exact' or 'paper'.")
+
+
 def project_psd(matrix: ArrayLike, *, epsilon: float = 0.0) -> FloatArray:
-    """Project a square matrix onto the positive semi-definite cone.
-
-    Parameters
-    ----------
-    matrix:
-        Matrix to project.  Any numerical asymmetry is removed before the
-        eigendecomposition.
-    epsilon:
-        Minimum allowed eigenvalue after projection.  ``0`` gives the nearest
-        positive semi-definite matrix under eigenvalue clipping.
-
-    Returns
-    -------
-    numpy.ndarray
-        Symmetric positive semi-definite matrix.
-    """
+    """Project a square matrix onto the positive semi-definite cone."""
     array = _as_float_matrix(matrix, name="matrix")
     if array.shape[0] != array.shape[1]:
         raise ValueError("matrix must be square.")
@@ -77,6 +91,128 @@ def project_psd(matrix: ArrayLike, *, epsilon: float = 0.0) -> FloatArray:
     clipped = np.maximum(eigenvalues, float(epsilon))
     projected = (eigenvectors * clipped) @ eigenvectors.T
     return np.asarray(0.5 * (projected + projected.T), dtype=np.float64)
+
+
+def _inverse_quadratic_form_cg(
+    metric: FloatArray,
+    difference: FloatArray,
+    *,
+    tolerance: float,
+    max_iter: int,
+) -> float:
+    """Approximate ``difference.T @ metric^-1 @ difference`` using CG.
+
+    A singular PSD system is valid when ``difference`` lies in the range of
+    ``metric``. If CG encounters a null-space direction before convergence, the
+    associated quadratic maximization is unbounded and ``inf`` is returned.
+    """
+    norm_difference = float(np.linalg.norm(difference))
+    if norm_difference == 0.0:
+        return 0.0
+
+    solution = np.zeros_like(difference, dtype=np.float64)
+    residual = difference.copy()
+    direction = residual.copy()
+    residual_sq = float(residual @ residual)
+    target_sq = (tolerance * max(1.0, norm_difference)) ** 2
+    matrix_scale = max(1.0, float(np.linalg.norm(metric, ord="fro")))
+    machine_epsilon = np.finfo(np.float64).eps
+
+    for _ in range(max_iter):
+        metric_direction = np.asarray(metric @ direction, dtype=np.float64)
+        direction_sq = float(direction @ direction)
+        curvature = float(direction @ metric_direction)
+        curvature_floor = machine_epsilon * matrix_scale * max(1.0, direction_sq)
+        if curvature <= curvature_floor:
+            return float("inf")
+
+        step = residual_sq / curvature
+        solution = solution + step * direction
+        residual = residual - step * metric_direction
+        next_residual_sq = float(residual @ residual)
+        if next_residual_sq <= target_sq:
+            quadratic_form = float(difference @ solution)
+            if quadratic_form >= 0.0:
+                return quadratic_form
+            return float("inf")
+
+        direction = residual + (next_residual_sq / residual_sq) * direction
+        residual_sq = next_residual_sq
+
+    return float("inf")
+
+
+def _paper_step_size_validated(
+    metric: FloatArray,
+    difference: FloatArray,
+    pair_label: float,
+    learning_rate: float,
+    *,
+    cg_tolerance: float,
+    cg_max_iter: int,
+) -> float:
+    """Return the feasible paper step after inputs have been validated."""
+    if pair_label == -1.0:
+        return learning_rate
+
+    inverse_quadratic = _inverse_quadratic_form_cg(
+        metric,
+        difference,
+        tolerance=cg_tolerance,
+        max_iter=cg_max_iter,
+    )
+    if not np.isfinite(inverse_quadratic):
+        return 0.0
+    if inverse_quadratic == 0.0:
+        return learning_rate
+    return min(learning_rate, 1.0 / inverse_quadratic)
+
+
+def paper_step_size(
+    metric: ArrayLike,
+    difference: ArrayLike,
+    pair_label: float,
+    learning_rate: float,
+    *,
+    cg_tolerance: float = 1e-8,
+    cg_max_iter: int | None = None,
+) -> float:
+    """Return Theorem 6's PSD-preserving adaptive learning rate.
+
+    For dissimilar pairs (``pair_label == -1``), Theorem 6 keeps the full
+    learning rate. For similar pairs, the step is capped by the reciprocal of
+    ``difference.T @ metric^-1 @ difference``. The inverse quadratic form is
+    evaluated with conjugate gradient, as proposed in the paper.
+
+    If a singular PSD system is inconsistent, no positive rank-one subtraction
+    can preserve positive semidefiniteness, so the conservative feasible step is
+    zero.
+    """
+    metric_array = _as_float_matrix(metric, name="metric")
+    if metric_array.shape[0] != metric_array.shape[1]:
+        raise ValueError("metric must be square.")
+    difference_array = _as_float_vector(difference, name="difference")
+    if difference_array.size != metric_array.shape[0]:
+        raise ValueError("difference size must match the metric dimension.")
+    if pair_label not in (-1.0, 1.0):
+        raise ValueError("pair_label must be either -1.0 or 1.0.")
+
+    resolved_learning_rate = _validate_positive_float(learning_rate, name="learning_rate")
+    resolved_tolerance = _validate_positive_float(cg_tolerance, name="cg_tolerance")
+    resolved_max_iter = (
+        2 * metric_array.shape[0]
+        if cg_max_iter is None
+        else _validate_positive_int(cg_max_iter, name="cg_max_iter")
+    )
+
+    return _paper_step_size_validated(
+        metric_array,
+        difference_array,
+        pair_label,
+        resolved_learning_rate,
+        cg_tolerance=resolved_tolerance,
+        cg_max_iter=resolved_max_iter,
+    )
 
 
 def squared_mahalanobis(x: ArrayLike, y: ArrayLike, metric: ArrayLike) -> float:
@@ -101,11 +237,6 @@ def squared_mahalanobis(x: ArrayLike, y: ArrayLike, metric: ArrayLike) -> float:
 class RDML:
     """Online Regularized Distance Metric Learning estimator.
 
-    This estimator implements Algorithm 1 from Jin, Wang, and Zhou (2009) using
-    exact projection onto the positive semi-definite cone after every violating
-    pair.  It intentionally prioritizes a transparent mathematical reference
-    implementation over the paper's faster approximate projection.
-
     Parameters
     ----------
     learning_rate:
@@ -113,9 +244,17 @@ class RDML:
     max_iter:
         Number of randomly sampled training pairs.
     margin:
-        Classification margin :math:`b` in the hinge-loss formulation.
+        Classification margin used by the pair decision rule.
     random_state:
         Seed or NumPy generator used to sample training pairs.
+    update_method:
+        ``"exact"`` applies an eigendecomposition-based PSD projection after
+        every violating pair. ``"paper"`` uses Theorem 6's adaptive rank-one
+        step and conjugate gradient instead.
+    cg_tolerance:
+        Relative residual tolerance used by the paper update's CG solve.
+    cg_max_iter:
+        Maximum CG iterations. ``None`` uses twice the feature dimension.
     """
 
     metric_: FloatArray
@@ -129,11 +268,17 @@ class RDML:
         max_iter: int = 1_000,
         margin: float = 1.0,
         random_state: RandomState = None,
+        update_method: UpdateMethod = "exact",
+        cg_tolerance: float = 1e-8,
+        cg_max_iter: int | None = None,
     ) -> None:
         self.learning_rate = learning_rate
         self.max_iter = max_iter
         self.margin = margin
         self.random_state = random_state
+        self.update_method = update_method
+        self.cg_tolerance = cg_tolerance
+        self.cg_max_iter = cg_max_iter
 
     def fit(self, X: ArrayLike, y: ArrayLike) -> RDML:
         """Learn a positive semi-definite distance metric from labelled samples."""
@@ -144,32 +289,46 @@ class RDML:
 
         learning_rate = _validate_positive_float(self.learning_rate, name="learning_rate")
         margin = _validate_positive_float(self.margin, name="margin")
-        if isinstance(self.max_iter, bool) or not isinstance(self.max_iter, int):
-            raise TypeError("max_iter must be an integer.")
-        if self.max_iter <= 0:
-            raise ValueError("max_iter must be greater than zero.")
+        max_iter = _validate_positive_int(self.max_iter, name="max_iter")
+        update_method = _validate_update_method(self.update_method)
+        cg_tolerance = _validate_positive_float(self.cg_tolerance, name="cg_tolerance")
 
+        n_samples, n_features = features.shape
+        cg_max_iter = (
+            2 * n_features
+            if self.cg_max_iter is None
+            else _validate_positive_int(self.cg_max_iter, name="cg_max_iter")
+        )
         rng = (
             self.random_state
             if isinstance(self.random_state, np.random.Generator)
             else np.random.default_rng(self.random_state)
         )
-
-        n_samples, n_features = features.shape
         metric = np.zeros((n_features, n_features), dtype=np.float64)
 
-        for _ in range(self.max_iter):
+        for _ in range(max_iter):
             first, second = rng.choice(n_samples, size=2, replace=False)
             difference = features[first] - features[second]
             pair_label = 1.0 if labels[first] == labels[second] else -1.0
             distance = float(difference @ metric @ difference)
 
-            # Algorithm 1: a pair is correct when y_t * (b - d_A) > 0.
             if pair_label * (margin - distance) > 0.0:
                 continue
 
-            candidate = metric - learning_rate * pair_label * np.outer(difference, difference)
-            metric = project_psd(candidate)
+            if update_method == "exact":
+                candidate = metric - learning_rate * pair_label * np.outer(difference, difference)
+                metric = project_psd(candidate)
+            else:
+                adaptive_step = _paper_step_size_validated(
+                    metric,
+                    difference,
+                    pair_label,
+                    learning_rate,
+                    cg_tolerance=cg_tolerance,
+                    cg_max_iter=cg_max_iter,
+                )
+                metric = metric - adaptive_step * pair_label * np.outer(difference, difference)
+                metric = np.asarray(0.5 * (metric + metric.T), dtype=np.float64)
 
         self.metric_ = metric
         self.n_features_in_ = n_features
