@@ -1,0 +1,50 @@
+[tool.poetry]
+name = "regularized-distance-metric-learning"
+version = "0.1.0"
+description = "A typed, tested implementation of Regularized Distance Metric Learning."
+authors = ["Diogo Ribeiro"]
+readme = "README.md"
+license = "GPL-3.0-or-later"
+packages = [{ include = "rdml", from = "src" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+numpy = ">=2.0,<3.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.3,<10.0"
+pytest-cov = ">=6.0,<8.0"
+ruff = ">=0.12,<1.0"
+mypy = ">=1.15,<2.0"
+pre-commit = ">=4.0,<5.0"
+
+[build-system]
+requires = ["poetry-core>=2.0,<3.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers --cov=rdml --cov-report=term-missing --cov-fail-under=90"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["rdml"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+packages = ["rdml"]
+warn_unreachable = true
