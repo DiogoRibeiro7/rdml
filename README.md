@@ -68,16 +68,16 @@ X_metric = model.transform(X)
 
 ## Development
 
-The engineering baseline is intentionally strict:
+The engineering baseline is intentionally strict for the canonical package and its tests:
 
 ```bash
-poetry run ruff check .
-poetry run ruff format --check .
+poetry run ruff check src tests
+poetry run ruff format --check src tests
 poetry run mypy src
 poetry run pytest
 ```
 
-CI runs these checks on Python 3.11, 3.12, and 3.13. Tests enforce at least 90% branch-aware coverage of the modern `rdml` package.
+CI runs these checks on Python 3.11, 3.12, and 3.13. Tests enforce at least 90% branch-aware coverage of the modern `rdml` package. The two historical root-level scripts are intentionally excluded from Ruff and pre-commit until their algorithms are reviewed and extracted; they remain preserved as legacy reference code rather than being silently reformatted or behaviourally changed.
 
 ## Modernization roadmap
 
