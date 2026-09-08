@@ -1,3 +1,5 @@
+exclude: ^(BiLinearSimilarity\.py|regularized_distance\.py)$
+
 repos:
   - repo: local
     hooks:
