@@ -110,6 +110,36 @@ PYTHONPATH=src python benchmarks/compare_projection_updates.py
 
 It reports runtime, Frobenius difference from the exact projection, and the minimum eigenvalue of the paper update for dimensions 16 through 256.
 
+## k-NN evaluation
+
+The package includes a NumPy-only k-nearest-neighbour evaluator so learned metric spaces can be compared without adding scikit-learn as a runtime dependency.
+
+```python
+from rdml import accuracy_score, knn_predict
+
+raw_predictions = knn_predict(X_train, y_train, X_test, n_neighbors=5)
+raw_accuracy = accuracy_score(y_test, raw_predictions)
+
+model = RDML(update_method="paper", random_state=2026).fit(X_train, y_train)
+metric_predictions = knn_predict(
+    model.transform(X_train),
+    y_train,
+    model.transform(X_test),
+    n_neighbors=5,
+)
+metric_accuracy = accuracy_score(y_test, metric_predictions)
+```
+
+Neighbour ordering is stable. Vote ties are broken first by the smallest total squared distance among the tied labels and then by earliest neighbour rank, so repeated runs on the same arrays are deterministic.
+
+A self-contained synthetic comparison is available with a fixed random seed and no downloads:
+
+```bash
+PYTHONPATH=src python examples/compare_knn.py
+```
+
+The script reports Euclidean 5-NN accuracy, RDML 5-NN accuracy, and their difference under the same train/test split. It is a reproducible diagnostic, not a test that RDML must outperform Euclidean distance on every problem.
+
 ## Development
 
 The engineering baseline is intentionally strict for the canonical package and its tests:
@@ -127,9 +157,10 @@ CI runs these checks on Python 3.11, 3.12, and 3.13. Tests enforce at least 90% 
 
 1. ✅ Establish the exact projected RDML implementation as a tested mathematical reference.
 2. ✅ Implement the paper's efficient PSD-preserving update and test it against the exact baseline.
-3. Add k-NN evaluation helpers and reproduce selected experiments from the paper on redistributable datasets.
-4. Separate and validate the historical low-rank bilinear and OASIS-style implementations.
-5. Add research documentation covering derivations, assumptions, complexity, and reproducibility.
+3. ✅ Add deterministic k-NN evaluation helpers and a reproducible synthetic comparison.
+4. Reproduce selected experiments from the paper on redistributable datasets.
+5. Separate and validate the historical low-rank bilinear and OASIS-style implementations.
+6. Add research documentation covering derivations, assumptions, complexity, and reproducibility.
 
 ## Reference
 
