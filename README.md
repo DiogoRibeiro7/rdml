@@ -140,6 +140,21 @@ PYTHONPATH=src python examples/compare_knn.py
 
 The script reports Euclidean 5-NN accuracy, RDML 5-NN accuracy, and their difference under the same train/test split. It is a reproducible diagnostic, not a test that RDML must outperform Euclidean distance on every problem.
 
+## Partial reproduction of the 2009 paper
+
+The repository now also includes a protocol-aligned partial reproduction of Experiment I on Iris and Wine. It follows the published evaluation structure: **3-NN, a random 50/50 train/test split, and 10 runs**.
+
+The runtime package remains NumPy-only. The UCI benchmark uses an optional dependency group for scikit-learn's bundled dataset copies:
+
+```bash
+poetry install --with benchmark
+poetry run python benchmarks/reproduce_paper_subset.py
+```
+
+The script prints reproduced Euclidean and RDML classification errors alongside the corresponding Table 1 values. Those published numbers are context, not regression targets, because the paper does not publish enough information to recreate its random seeds, sampled pair stream, and all tuning choices exactly.
+
+The full methodological boundary and fixed implementation choices are documented in [`docs/reproduction.md`](docs/reproduction.md).
+
 ## Development
 
 The engineering baseline is intentionally strict for the canonical package and its tests:
@@ -158,9 +173,10 @@ CI runs these checks on Python 3.11, 3.12, and 3.13. Tests enforce at least 90% 
 1. ✅ Establish the exact projected RDML implementation as a tested mathematical reference.
 2. ✅ Implement the paper's efficient PSD-preserving update and test it against the exact baseline.
 3. ✅ Add deterministic k-NN evaluation helpers and a reproducible synthetic comparison.
-4. Reproduce selected experiments from the paper on redistributable datasets.
-5. Separate and validate the historical low-rank bilinear and OASIS-style implementations.
-6. Add research documentation covering derivations, assumptions, complexity, and reproducibility.
+4. ✅ Add a protocol-aligned partial reproduction on Iris and Wine.
+5. Expand the reproduction to more of the original UCI datasets with explicit provenance.
+6. Separate and validate the historical low-rank bilinear and OASIS-style implementations.
+7. Add research documentation covering derivations, assumptions, complexity, and reproducibility.
 
 ## Reference
 
