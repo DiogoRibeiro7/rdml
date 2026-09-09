@@ -1,0 +1,81 @@
+digraph RDMLReproduction {
+  graph [
+    rankdir=LR,
+    labelloc="t",
+    label="RDML partial reproduction: protocol, implementation choices, and diagnostic evidence",
+    fontsize=20,
+    fontname="Helvetica",
+    nodesep=0.45,
+    ranksep=0.75,
+    splines=ortho
+  ];
+  node [
+    shape=box,
+    style="rounded",
+    fontname="Helvetica",
+    fontsize=11,
+    margin="0.16,0.10"
+  ];
+  edge [fontname="Helvetica", fontsize=10];
+
+  subgraph cluster_paper {
+    label="Published 2009 experiment";
+    style="rounded";
+
+    paper_protocol [label="Experiment I protocol\n3-NN · random 50/50 split · 10 runs"];
+    paper_values [label="Published Table 1 values\nreference context only"];
+    missing_detail [label="Unpublished implementation detail\nseeds · sampled pair streams · per-dataset tuning\npreprocessing · singular-start convention"];
+  }
+
+  subgraph cluster_repo {
+    label="Repository-fixed reproduction choices";
+    style="rounded";
+
+    datasets [label="Bundled Iris + Wine copies\nscikit-learn benchmark dependency\nno runtime download"];
+    choices [label="Explicit choices\nseeds 0..9 · learning rate 0.1\nmargin 1.0 · 10,000 pair updates\nno feature standardization"];
+    split [label="Deterministic 50/50 split\nper seed"];
+  }
+
+  subgraph cluster_methods {
+    label="Same split, three diagnostic paths";
+    style="rounded";
+
+    euclidean [label="Euclidean 3-NN\nbaseline"];
+    exact [label="RDML exact\nAlgorithm 1 projected update\neigendecomposition PSD projection"];
+    paper_safe [label="RDML paper-safe\nTheorem 6 step cap + CG\nconservative singular-matrix rule"];
+    transformed_exact [label="Exact learned metric\ntransform train + test"];
+    transformed_paper [label="Paper-safe learned metric\ntransform train + test"];
+    knn_exact [label="Deterministic 3-NN"];
+    knn_paper [label="Deterministic 3-NN"];
+  }
+
+  aggregate [label="Aggregate classification error\nmean + sample standard deviation\nacross 10 runs", shape=box];
+  compare [label="Diagnostic comparison\nreproduced results vs Table 1", shape=box];
+  interpretation [label="Scientific interpretation\nIris broadly compatible\nWine discrepancy localizes the main gap\nto the efficient-update interpretation\nNo parameter search to force agreement", shape=box];
+  boundary [label="Claim boundary\npartial reproduction, not exact replication", shape=note];
+
+  paper_protocol -> split [label="evaluation structure"];
+  paper_protocol -> paper_values [label="reported outcome"];
+  missing_detail -> boundary [label="prevents exact replication"];
+
+  datasets -> split [label="data"];
+  choices -> split [label="fixed stochastic choices"];
+
+  split -> euclidean;
+  split -> exact;
+  split -> paper_safe;
+
+  exact -> transformed_exact;
+  paper_safe -> transformed_paper;
+  transformed_exact -> knn_exact;
+  transformed_paper -> knn_paper;
+
+  euclidean -> aggregate;
+  knn_exact -> aggregate;
+  knn_paper -> aggregate;
+
+  aggregate -> compare;
+  paper_values -> compare [label="context, not target"];
+  compare -> interpretation;
+  boundary -> interpretation [style=dashed];
+}

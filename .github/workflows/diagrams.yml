@@ -1,0 +1,86 @@
+name: Documentation diagrams
+
+on:
+  push:
+    branches:
+      - main
+      - docs/reproduction-dag
+    paths:
+      - "docs/diagrams/**"
+      - "docs/reproduction.md"
+      - "README.md"
+      - ".github/workflows/diagrams.yml"
+  pull_request:
+    paths:
+      - "docs/diagrams/**"
+      - "docs/reproduction.md"
+      - "README.md"
+      - ".github/workflows/diagrams.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: diagrams-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    name: Render Graphviz diagrams
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install and verify Graphviz
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes graphviz
+          command -v dot
+          dot -V
+
+      - name: Render reader-visible SVGs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs/diagrams/rendered
+          mapfile -t sources < <(find docs/diagrams -maxdepth 1 -type f -name '*.dot' -print | sort)
+          test "${#sources[@]}" -gt 0
+          for source in "${sources[@]}"; do
+            name="$(basename "${source}" .dot)"
+            dot -Tsvg "${source}" -o "docs/diagrams/rendered/${name}.svg"
+          done
+          mapfile -t rendered < <(find docs/diagrams/rendered -maxdepth 1 -type f -name '*.svg' -print | sort)
+          test "${#rendered[@]}" -eq "${#sources[@]}"
+          ! grep -Rqi "syntax error" docs/diagrams/rendered
+
+      - name: Commit generated diagrams on the documentation branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/docs/reproduction-dag'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add docs/diagrams/rendered
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs: render reproduction DAG"
+          git push origin HEAD:docs/reproduction-dag
+
+      - name: Verify committed renders are current
+        if: github.event_name != 'push' || github.ref != 'refs/heads/docs/reproduction-dag'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- docs/diagrams/rendered
+
+      - name: Upload rendered SVGs
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-diagrams
+          path: docs/diagrams/rendered/*.svg
+          if-no-files-found: error
+          retention-days: 14

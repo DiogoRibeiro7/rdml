@@ -144,6 +144,10 @@ The script reports Euclidean 5-NN accuracy, RDML 5-NN accuracy, and their differ
 
 The repository now also includes a protocol-aligned partial reproduction of Experiment I on Iris and Wine. It follows the published evaluation structure: **3-NN, a random 50/50 train/test split, and 10 runs**.
 
+![RDML partial reproduction provenance DAG](docs/diagrams/rendered/reproduction_dag.svg)
+
+The diagram separates the published protocol from repository-fixed choices and the two RDML numerical interpretations. It also makes the claim boundary explicit: published Table 1 values are comparison context, not targets to tune against.
+
 The runtime package remains NumPy-only. The UCI benchmark uses an optional dependency group for scikit-learn's bundled dataset copies:
 
 ```bash
