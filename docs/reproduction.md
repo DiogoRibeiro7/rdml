@@ -2,6 +2,14 @@
 
 This repository includes a protocol-aligned partial reproduction of Experiment I from Jin, Wang, and Zhou (2009).
 
+## Reproduction provenance
+
+![RDML partial reproduction provenance DAG](diagrams/rendered/reproduction_dag.svg)
+
+The diagram separates what is inherited from the published experiment from what this repository must choose explicitly. It also shows why the published Table 1 values are **comparison context rather than optimisation or regression targets**: seeds, sampled pair streams, some tuning/preprocessing details, and the efficient-update singular-start convention are not fully specified by the paper.
+
+The Graphviz source is [`diagrams/reproduction_dag.dot`](diagrams/reproduction_dag.dot). The committed SVG is regenerated in CI and checked for source/render drift.
+
 ## What is reproduced
 
 The published experiment evaluates learned metrics with a 3-nearest-neighbour classifier. For each UCI dataset, 50% of the samples are selected for training and the remaining 50% are used for testing. The reported classification error is averaged over 10 runs.
