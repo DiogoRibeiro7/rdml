@@ -61,6 +61,14 @@ On the fixed seeds 0 through 9, the current implementation gives approximately:
 
 These numbers are diagnostics, not fitted targets. Iris is broadly compatible with the published pattern. Wine is not: the exact projected method improves strongly over Euclidean distance, while the current paper-safe path does not. That discrepancy is scientifically useful because it localizes the largest reproduction gap to the efficient-update interpretation rather than to the k-NN evaluator or the dataset itself.
 
+### Structural fit diagnostics
+
+`RDML.fit` exposes a frozen `FitDiagnostics` summary as `model.diagnostics_`. It records how the sampled pair stream is partitioned, how many similar-pair violations receive positive or zero adaptive steps, and the final numerical rank and minimum eigenvalue of the learned metric.
+
+For the same ten Wine runs, the exact projected method finishes with mean numerical rank about **10.5 out of 13**. The paper-safe path finishes at mean rank about **1.3 out of 13**. Across the ten runs, all **34,148** similar-pair violations in the paper-safe path receive a zero adaptive step under the conservative singular-matrix rule.
+
+Replacing conjugate gradient with an eigendecomposition-based exact evaluation of the same PSD-feasibility condition produces the same qualitative Wine behaviour. This shows that the observed stagnation is not primarily a CG convergence artifact: it follows from the singular feasible-update geometry itself under the zero initialization and raw Wine feature scales.
+
 No parameter search is performed to force agreement with Table 1.
 
 ## Running the benchmark
@@ -77,7 +85,7 @@ Then run:
 poetry run python benchmarks/reproduce_paper_subset.py
 ```
 
-The output reports mean classification error and sample standard deviation for Euclidean, exact RDML, and paper-safe RDML, followed by the corresponding published values for context.
+The output reports mean classification error and sample standard deviation for Euclidean, exact RDML, and paper-safe RDML. For the RDML methods it also reports mean final rank, and for paper-safe it reports the fraction of similar-pair violations that receive a zero adaptive step.
 
 ## Published reference values
 
