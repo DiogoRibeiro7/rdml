@@ -7,6 +7,7 @@ the paper's efficient adaptive rank-one update is available as an opt-in method.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias
 
 import numpy as np
@@ -16,6 +17,20 @@ FloatArray: TypeAlias = NDArray[np.float64]
 LabelArray: TypeAlias = NDArray[Any]
 RandomState: TypeAlias = int | np.random.Generator | None
 UpdateMethod: TypeAlias = Literal["exact", "paper"]
+
+
+@dataclass(frozen=True)
+class FitDiagnostics:
+    """Summary of the update stream observed during one RDML fit."""
+
+    sampled_pairs: int
+    correct_pairs: int
+    dissimilar_updates: int
+    similar_violations: int
+    similar_positive_steps: int
+    similar_zero_steps: int
+    final_rank: int
+    minimum_eigenvalue: float
 
 
 def _as_float_matrix(values: ArrayLike, *, name: str) -> FloatArray:
@@ -76,6 +91,13 @@ def _validate_update_method(value: str) -> UpdateMethod:
     if value == "paper":
         return "paper"
     raise ValueError("update_method must be either 'exact' or 'paper'.")
+
+
+def _numerical_rank(eigenvalues: FloatArray) -> int:
+    """Return a scale-aware numerical rank for a PSD metric."""
+    scale = max(1.0, float(np.max(np.abs(eigenvalues))))
+    tolerance = np.finfo(np.float64).eps * eigenvalues.size * scale
+    return int(np.count_nonzero(eigenvalues > tolerance))
 
 
 def project_psd(matrix: ArrayLike, *, epsilon: float = 0.0) -> FloatArray:
@@ -235,31 +257,12 @@ def squared_mahalanobis(x: ArrayLike, y: ArrayLike, metric: ArrayLike) -> float:
 
 
 class RDML:
-    """Online Regularized Distance Metric Learning estimator.
-
-    Parameters
-    ----------
-    learning_rate:
-        Online update step size :math:`\\lambda`.
-    max_iter:
-        Number of randomly sampled training pairs.
-    margin:
-        Classification margin used by the pair decision rule.
-    random_state:
-        Seed or NumPy generator used to sample training pairs.
-    update_method:
-        ``"exact"`` applies an eigendecomposition-based PSD projection after
-        every violating pair. ``"paper"`` uses Theorem 6's adaptive rank-one
-        step and conjugate gradient instead.
-    cg_tolerance:
-        Relative residual tolerance used by the paper update's CG solve.
-    cg_max_iter:
-        Maximum CG iterations. ``None`` uses twice the feature dimension.
-    """
+    """Online Regularized Distance Metric Learning estimator."""
 
     metric_: FloatArray
     components_: FloatArray
     n_features_in_: int
+    diagnostics_: FitDiagnostics
 
     def __init__(
         self,
@@ -281,7 +284,7 @@ class RDML:
         self.cg_max_iter = cg_max_iter
 
     def fit(self, X: ArrayLike, y: ArrayLike) -> RDML:
-        """Learn a positive semi-definite distance metric from labelled samples."""
+        """Learn a PSD distance metric and expose update-stream diagnostics."""
         features = _as_float_matrix(X, name="X")
         if features.shape[0] < 2:
             raise ValueError("X must contain at least two samples.")
@@ -305,6 +308,11 @@ class RDML:
             else np.random.default_rng(self.random_state)
         )
         metric = np.zeros((n_features, n_features), dtype=np.float64)
+        correct_pairs = 0
+        dissimilar_updates = 0
+        similar_violations = 0
+        similar_positive_steps = 0
+        similar_zero_steps = 0
 
         for _ in range(max_iter):
             first, second = rng.choice(n_samples, size=2, replace=False)
@@ -313,11 +321,19 @@ class RDML:
             distance = float(difference @ metric @ difference)
 
             if pair_label * (margin - distance) > 0.0:
+                correct_pairs += 1
                 continue
+
+            if pair_label == -1.0:
+                dissimilar_updates += 1
+            else:
+                similar_violations += 1
 
             if update_method == "exact":
                 candidate = metric - learning_rate * pair_label * np.outer(difference, difference)
                 metric = project_psd(candidate)
+                if pair_label == 1.0:
+                    similar_positive_steps += 1
             else:
                 adaptive_step = _paper_step_size_validated(
                     metric,
@@ -327,12 +343,28 @@ class RDML:
                     cg_tolerance=cg_tolerance,
                     cg_max_iter=cg_max_iter,
                 )
+                if pair_label == 1.0:
+                    if adaptive_step > 0.0:
+                        similar_positive_steps += 1
+                    else:
+                        similar_zero_steps += 1
                 metric = metric - adaptive_step * pair_label * np.outer(difference, difference)
                 metric = np.asarray(0.5 * (metric + metric.T), dtype=np.float64)
 
+        eigenvalues = np.asarray(np.linalg.eigvalsh(metric), dtype=np.float64)
         self.metric_ = metric
         self.n_features_in_ = n_features
         self.components_ = self._metric_components(metric)
+        self.diagnostics_ = FitDiagnostics(
+            sampled_pairs=max_iter,
+            correct_pairs=correct_pairs,
+            dissimilar_updates=dissimilar_updates,
+            similar_violations=similar_violations,
+            similar_positive_steps=similar_positive_steps,
+            similar_zero_steps=similar_zero_steps,
+            final_rank=_numerical_rank(eigenvalues),
+            minimum_eigenvalue=float(np.min(eigenvalues)),
+        )
         return self
 
     def transform(self, X: ArrayLike) -> FloatArray:

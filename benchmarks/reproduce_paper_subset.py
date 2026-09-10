@@ -17,7 +17,7 @@ import numpy as np
 from numpy.typing import NDArray
 from sklearn.datasets import load_iris, load_wine
 
-from rdml import RDML, accuracy_score, knn_predict
+from rdml import FitDiagnostics, RDML, accuracy_score, knn_predict
 
 FloatMatrix = NDArray[np.float64]
 IntLabels = NDArray[np.int64]
@@ -42,7 +42,7 @@ class PaperReference:
 
 @dataclass(frozen=True)
 class ReproductionResult:
-    """Mean and sample standard deviation for all diagnostic metrics."""
+    """Repeated classification errors plus structural RDML diagnostics."""
 
     euclidean_mean: float
     euclidean_std: float
@@ -50,6 +50,9 @@ class ReproductionResult:
     exact_std: float
     paper_safe_mean: float
     paper_safe_std: float
+    exact_rank_mean: float
+    paper_safe_rank_mean: float
+    paper_safe_zero_step_fraction: float
 
 
 def _split_half(
@@ -72,7 +75,7 @@ def _classification_error(y_true: IntLabels, y_pred: NDArray[np.generic]) -> flo
     return 1.0 - accuracy_score(y_true, y_pred)
 
 
-def _rdml_error(
+def _rdml_result(
     X_train: FloatMatrix,
     y_train: IntLabels,
     X_test: FloatMatrix,
@@ -80,8 +83,8 @@ def _rdml_error(
     *,
     seed: int,
     update_method: UpdateMethod,
-) -> float:
-    """Fit one RDML variant and return its 3-NN classification error."""
+) -> tuple[float, FitDiagnostics]:
+    """Fit one RDML variant and return its error plus fit diagnostics."""
     model = RDML(
         learning_rate=LEARNING_RATE,
         max_iter=MAX_ITER,
@@ -95,7 +98,7 @@ def _rdml_error(
         model.transform(X_test),
         n_neighbors=N_NEIGHBORS,
     )
-    return _classification_error(y_test, predictions)
+    return _classification_error(y_test, predictions), model.diagnostics_
 
 
 def evaluate_dataset(X: FloatMatrix, y: IntLabels) -> ReproductionResult:
@@ -103,6 +106,10 @@ def evaluate_dataset(X: FloatMatrix, y: IntLabels) -> ReproductionResult:
     euclidean_errors: list[float] = []
     exact_errors: list[float] = []
     paper_safe_errors: list[float] = []
+    exact_ranks: list[int] = []
+    paper_safe_ranks: list[int] = []
+    paper_zero_steps = 0
+    paper_similar_violations = 0
 
     for seed in range(N_RUNS):
         X_train, y_train, X_test, y_test = _split_half(X, y, seed=seed)
@@ -114,30 +121,37 @@ def evaluate_dataset(X: FloatMatrix, y: IntLabels) -> ReproductionResult:
             n_neighbors=N_NEIGHBORS,
         )
         euclidean_errors.append(_classification_error(y_test, euclidean_pred))
-        exact_errors.append(
-            _rdml_error(
-                X_train,
-                y_train,
-                X_test,
-                y_test,
-                seed=seed,
-                update_method="exact",
-            )
+
+        exact_error, exact_diagnostics = _rdml_result(
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            seed=seed,
+            update_method="exact",
         )
-        paper_safe_errors.append(
-            _rdml_error(
-                X_train,
-                y_train,
-                X_test,
-                y_test,
-                seed=seed,
-                update_method="paper",
-            )
+        exact_errors.append(exact_error)
+        exact_ranks.append(exact_diagnostics.final_rank)
+
+        paper_error, paper_diagnostics = _rdml_result(
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            seed=seed,
+            update_method="paper",
         )
+        paper_safe_errors.append(paper_error)
+        paper_safe_ranks.append(paper_diagnostics.final_rank)
+        paper_zero_steps += paper_diagnostics.similar_zero_steps
+        paper_similar_violations += paper_diagnostics.similar_violations
 
     euclidean = np.asarray(euclidean_errors, dtype=np.float64)
     exact = np.asarray(exact_errors, dtype=np.float64)
     paper_safe = np.asarray(paper_safe_errors, dtype=np.float64)
+    zero_fraction = (
+        paper_zero_steps / paper_similar_violations if paper_similar_violations > 0 else 0.0
+    )
     return ReproductionResult(
         euclidean_mean=float(np.mean(euclidean)),
         euclidean_std=float(np.std(euclidean, ddof=1)),
@@ -145,6 +159,9 @@ def evaluate_dataset(X: FloatMatrix, y: IntLabels) -> ReproductionResult:
         exact_std=float(np.std(exact, ddof=1)),
         paper_safe_mean=float(np.mean(paper_safe)),
         paper_safe_std=float(np.std(paper_safe, ddof=1)),
+        exact_rank_mean=float(np.mean(exact_ranks)),
+        paper_safe_rank_mean=float(np.mean(paper_safe_ranks)),
+        paper_safe_zero_step_fraction=float(zero_fraction),
     )
 
 
@@ -153,7 +170,7 @@ def _print_result(
     result: ReproductionResult,
     reference: PaperReference,
 ) -> None:
-    """Print reproduced and published error rates in percentage points."""
+    """Print reproduced errors, ranks, and published context."""
     print(f"\n{name}")
     print("-" * len(name))
     print(
@@ -162,11 +179,14 @@ def _print_result(
     )
     print(
         "RDML exact:      "
-        f"{100 * result.exact_mean:.1f}% ± {100 * result.exact_std:.1f}"
+        f"{100 * result.exact_mean:.1f}% ± {100 * result.exact_std:.1f}; "
+        f"mean rank {result.exact_rank_mean:.1f}"
     )
     print(
         "RDML paper-safe: "
-        f"{100 * result.paper_safe_mean:.1f}% ± {100 * result.paper_safe_std:.1f}"
+        f"{100 * result.paper_safe_mean:.1f}% ± {100 * result.paper_safe_std:.1f}; "
+        f"mean rank {result.paper_safe_rank_mean:.1f}; "
+        f"zero similar steps {100 * result.paper_safe_zero_step_fraction:.1f}%"
     )
     print(
         "Paper Table 1:   "
