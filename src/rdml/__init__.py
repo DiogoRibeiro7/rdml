@@ -1,11 +1,11 @@
 """Regularized Distance Metric Learning research software."""
 
-from rdml.core import FitDiagnostics, RDML, paper_step_size, project_psd, squared_mahalanobis
+from rdml.core import RDML, FitDiagnostics, paper_step_size, project_psd, squared_mahalanobis
 from rdml.evaluation import accuracy_score, knn_predict
 
 __all__ = [
-    "FitDiagnostics",
     "RDML",
+    "FitDiagnostics",
     "accuracy_score",
     "knn_predict",
     "paper_step_size",
