@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from rdml import FitDiagnostics, RDML
+from rdml import RDML, FitDiagnostics
 
 
 def _dataset() -> tuple[np.ndarray, np.ndarray]:
