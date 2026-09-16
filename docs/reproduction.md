@@ -69,9 +69,32 @@ For the same ten Wine runs, the exact projected method finishes with mean numeri
 
 Replacing conjugate gradient with an eigendecomposition-based exact evaluation of the same PSD-feasibility condition produces the same qualitative Wine behaviour. This shows that the observed stagnation is not primarily a CG convergence artifact: it follows from the singular feasible-update geometry itself under the zero initialization and raw Wine feature scales.
 
+### Singular-start initialization sweep
+
+`benchmarks/singular_start_sweep.py` changes only the initial metric used with the public Theorem 6 step. The stable estimator is not modified. Four named conventions are evaluated under identical splits and pair streams:
+
+- `paper-zero`: \(A_0=0\), matching the current conservative paper-safe interpretation
+- `paper-0.1I`: \(A_0=0.1I\)
+- `paper-I`: \(A_0=I\)
+- `paper-10I`: \(A_0=10I\)
+
+The exact projected estimator remains the reference. On Wine, the fixed ten-run sweep gives approximately:
+
+| Variant | Classification error | Mean final rank | Zero similar-pair steps |
+| --- | ---: | ---: | ---: |
+| exact | 12.70% ± 2.90% | 10.5 | 0% |
+| `paper-zero` | 33.82% ± 3.72% | 1.3 | 100.00% |
+| `paper-0.1I` | 30.79% ± 8.69% | 12.0 | 99.95% |
+| `paper-I` | 18.31% ± 5.51% | 12.0 | 99.97% |
+| `paper-10I` | 18.31% ± 5.51% | 12.0 | 99.97% |
+
+A positive-definite start therefore changes the learned metric substantially, but it does **not** resolve the structural issue. Once a similar-pair subtraction reaches the PSD boundary, the metric becomes singular again and almost all subsequent similar-pair violations receive a zero step. The result also shows that the identity scale is a consequential modelling choice rather than a harmless numerical jitter.
+
+This makes the next methodological question sharper: a faithful efficient variant needs an explicit convention for staying in, or returning to, the positive-definite interior rather than merely replacing the zero initialization with an arbitrary identity scale.
+
 No parameter search is performed to force agreement with Table 1.
 
-## Running the benchmark
+## Running the benchmarks
 
 Install the optional benchmark dependency group:
 
@@ -79,13 +102,25 @@ Install the optional benchmark dependency group:
 poetry install --with benchmark
 ```
 
-Then run:
+Run the Experiment I subset:
 
 ```bash
 poetry run python benchmarks/reproduce_paper_subset.py
 ```
 
-The output reports mean classification error and sample standard deviation for Euclidean, exact RDML, and paper-safe RDML. For the RDML methods it also reports mean final rank, and for paper-safe it reports the fraction of similar-pair violations that receive a zero adaptive step.
+Run the singular-start diagnostic sweep:
+
+```bash
+poetry run python benchmarks/singular_start_sweep.py
+```
+
+To run only the Wine diagnosis used in CI:
+
+```bash
+poetry run python benchmarks/singular_start_sweep.py --dataset wine
+```
+
+The main reproduction reports mean classification error and sample standard deviation for Euclidean, exact RDML, and paper-safe RDML. For the RDML methods it also reports mean final rank, and for paper-safe it reports the fraction of similar-pair violations that receive a zero adaptive step. The singular-start sweep reports the same structural quantities for each initialization convention.
 
 ## Published reference values
 
@@ -96,4 +131,4 @@ For the two datasets currently covered, Table 1 reports:
 | Iris | 4.0% ± 1.7% | 3.2% ± 1.3% |
 | Wine | 31.9% ± 2.8% | 1.8% ± 1.1% |
 
-The next methodological task is to investigate the efficient-update singular-start convention and the remaining undocumented tuning/preprocessing assumptions before expanding Table 1 coverage.
+The next methodological task is to test explicitly named positive-definite-interior update conventions before expanding Table 1 coverage.
