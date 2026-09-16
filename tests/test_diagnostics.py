@@ -31,9 +31,7 @@ def test_exact_fit_diagnostics_partition_sampled_pairs() -> None:
     assert isinstance(diagnostics, FitDiagnostics)
     assert diagnostics.sampled_pairs == 250
     assert (
-        diagnostics.correct_pairs
-        + diagnostics.dissimilar_updates
-        + diagnostics.similar_violations
+        diagnostics.correct_pairs + diagnostics.dissimilar_updates + diagnostics.similar_violations
         == diagnostics.sampled_pairs
     )
     assert diagnostics.similar_positive_steps == diagnostics.similar_violations
@@ -50,9 +48,7 @@ def test_paper_fit_diagnostics_account_for_zero_steps() -> None:
 
     assert diagnostics.sampled_pairs == 250
     assert (
-        diagnostics.correct_pairs
-        + diagnostics.dissimilar_updates
-        + diagnostics.similar_violations
+        diagnostics.correct_pairs + diagnostics.dissimilar_updates + diagnostics.similar_violations
         == diagnostics.sampled_pairs
     )
     assert (
