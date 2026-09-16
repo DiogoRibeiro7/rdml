@@ -30,3 +30,6 @@ jobs:
 
       - name: Run Experiment I subset
         run: poetry run python benchmarks/reproduce_paper_subset.py
+
+      - name: Run singular-start Wine sweep
+        run: poetry run python benchmarks/singular_start_sweep.py --dataset wine
