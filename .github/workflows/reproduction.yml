@@ -33,3 +33,6 @@ jobs:
 
       - name: Run singular-start Wine sweep
         run: poetry run python benchmarks/singular_start_sweep.py --dataset wine
+      - name: Run strict-interior Wine sweep
+        run: poetry run python benchmarks/interior_step_sweep.py
+
