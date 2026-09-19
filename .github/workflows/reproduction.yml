@@ -36,3 +36,5 @@ jobs:
       - name: Run strict-interior Wine sweep
         run: poetry run python benchmarks/interior_step_sweep.py
 
+      - name: Run factorized interior Wine reference
+        run: poetry run python benchmarks/factorized_interior.py
