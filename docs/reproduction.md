@@ -92,6 +92,43 @@ A positive-definite start therefore changes the learned metric substantially, bu
 
 This makes the next methodological question sharper: a faithful efficient variant needs an explicit convention for staying in, or returning to, the positive-definite interior rather than merely replacing the zero initialization with an arbitrary identity scale.
 
+### Strict-interior reference sweep
+
+`benchmarks/interior_step_sweep.py` tests a second question separately from
+initialization: what happens if same-class updates are kept strictly inside the
+positive-definite cone? Starting from \(A_0=I\), it uses the reference cap
+
+\[
+\alpha_t = \min\!\left(\lambda,\frac{\rho}{v^\top A_{t-1}^{-1}v}\right),
+\qquad 0<\rho<1.
+\]
+
+A direct linear solve is used deliberately. This is a mathematical reference
+for the convention, not yet a scalable implementation. The sweep compares
+\(\rho\in\{0.01,0.05,0.1,0.2\}\) under the same ten Wine splits.
+
+On raw Wine features, the interior cap improves substantially over the
+boundary-hitting paper-safe path but remains sensitive to conditioning. The
+best observed mean error in this fixed sweep is about **14.0%**, around
+\(\rho=0.1\) to \(0.2\), versus **12.7%** for the exact projected reference.
+
+Train-only standardization changes the picture dramatically: Euclidean 3-NN
+itself drops from about **31.2%** error to about **5.1%**, while the small-
+\(\rho\) interior variants are around **3.8–4.0%**. That is useful numerical
+evidence, but it cannot be silently adopted as the paper protocol because the
+published Wine Euclidean baseline is about **31.9%**. In other words,
+standardization stabilizes the geometry while simultaneously changing the
+benchmark problem.
+
+This isolates two separate issues:
+
+1. the boundary step can collapse the metric to a singular face of the PSD cone;
+2. raw feature scaling can make inverse-based interior updates numerically
+   fragile even when the algebraic update remains positive definite.
+
+The next implementation question is therefore a stable factorized interior
+update, evaluated without changing the published-data preprocessing by default.
+
 No parameter search is performed to force agreement with Table 1.
 
 ## Running the benchmarks
