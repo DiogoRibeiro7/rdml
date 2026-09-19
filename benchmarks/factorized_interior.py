@@ -20,6 +20,7 @@ from numpy.typing import NDArray
 from sklearn.datasets import load_wine
 
 from rdml import accuracy_score, knn_predict
+from rdml._factorized import cholesky_rank_one, forward_substitution
 
 FloatMatrix = NDArray[np.float64]
 IntLabels = NDArray[np.int64]
@@ -73,50 +74,6 @@ def _preprocess(
     return (X_train - mean) / safe_scale, (X_test - mean) / safe_scale
 
 
-def _forward_substitution(lower: FloatMatrix, rhs: NDArray[np.float64]) -> NDArray[np.float64]:
-    """Solve lower @ z = rhs for triangular lower."""
-    solution = np.empty_like(rhs)
-    for row in range(rhs.size):
-        residual = rhs[row] - lower[row, :row] @ solution[:row]
-        solution[row] = residual / lower[row, row]
-    return solution
-
-
-def _cholesky_rank_one(
-    lower: FloatMatrix,
-    vector: NDArray[np.float64],
-    *,
-    sign: int,
-) -> FloatMatrix:
-    """Apply a rank-one Cholesky update or downdate.
-
-    sign=+1 represents A + xx^T, sign=-1 represents A - xx^T.
-    """
-    updated = lower.copy()
-    work = vector.copy()
-
-    for index in range(work.size):
-        diagonal = updated[index, index]
-        radicand = diagonal * diagonal + sign * work[index] * work[index]
-        if not np.isfinite(radicand) or radicand <= 0.0:
-            raise np.linalg.LinAlgError("rank-one downdate left the SPD cone")
-
-        replacement = float(np.sqrt(radicand))
-        cosine = replacement / diagonal
-        sine = work[index] / diagonal
-        updated[index, index] = replacement
-
-        if index + 1 < work.size:
-            column = (
-                updated[index + 1 :, index]
-                + sign * sine * work[index + 1 :]
-            ) / cosine
-            updated[index + 1 :, index] = column
-            work[index + 1 :] = cosine * work[index + 1 :] - sine * column
-
-    return updated
-
-
 def _fit_factorized(
     X: FloatMatrix,
     y: IntLabels,
@@ -143,14 +100,14 @@ def _fit_factorized(
 
         if pair_label == -1.0:
             step = LEARNING_RATE
-            factor = _cholesky_rank_one(
+            factor = cholesky_rank_one(
                 factor,
                 np.sqrt(step) * difference,
                 sign=1,
             )
         else:
             similar_violations += 1
-            solved = _forward_substitution(factor, difference)
+            solved = forward_substitution(factor, difference)
             inverse_quadratic = float(solved @ solved)
             if not np.isfinite(inverse_quadratic) or inverse_quadratic <= 0.0:
                 step = 0.0
@@ -159,7 +116,7 @@ def _fit_factorized(
                 step = min(LEARNING_RATE, RHO / inverse_quadratic)
 
             if step > 0.0:
-                factor = _cholesky_rank_one(
+                factor = cholesky_rank_one(
                     factor,
                     np.sqrt(step) * difference,
                     sign=-1,
