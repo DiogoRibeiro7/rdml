@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, TypeAlias
+from typing import TypeAlias
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -97,7 +97,7 @@ def cholesky_rank_one(
     lower: ArrayLike,
     vector: ArrayLike,
     *,
-    sign: RankOneSign,
+    sign: int,
     minimum_relative_diagonal: float = 0.0,
 ) -> FloatArray:
     """Return a Cholesky factor for A + sign * x x.T.
