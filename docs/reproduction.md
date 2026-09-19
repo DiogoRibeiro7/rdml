@@ -129,6 +129,37 @@ This isolates two separate issues:
 The next implementation question is therefore a stable factorized interior
 update, evaluated without changing the published-data preprocessing by default.
 
+### Factorized strict-interior reference
+
+`benchmarks/factorized_interior.py` implements the same strict-interior
+convention with a Cholesky factor \(A=L L^\top\) instead of repeated direct
+matrix solves. For a same-class pair, it computes
+
+\[
+q=v^\top A^{-1}v = \|L^{-1}v\|^2,
+\]
+
+chooses \(\alpha=\min(\lambda,\rho/q)\), and applies a rank-one Cholesky
+downdate. Different-class updates use the corresponding rank-one Cholesky
+update. The per-step algebra is therefore \(O(d^2)\), with no explicit inverse
+and no eigendecomposition.
+
+At \(\rho=0.1\) and \(A_0=I\), the factorized path reproduces the direct
+matrix-reference trajectory to numerical precision on fixed runs (relative
+Frobenius discrepancy about \(2\times10^{-15}\) in a checked raw-Wine run).
+Across the ten fixed Wine splits it gives the same mean classification error as
+the direct reference: about **14.04%** on raw features and **4.04%** after
+train-only standardization. Similar-pair zero steps disappear.
+
+The conditioning warning remains visible, however. On raw Wine the smallest
+Cholesky diagonal becomes extremely small, around \(10^{-75}\) on average in
+the fixed sweep. The factorization therefore fixes the explicit-inverse and
+singular-face mechanics, but it does not make badly scaled raw coordinates
+well-conditioned.
+
+This is still benchmark-only. The public estimator remains unchanged until the
+factorized path has stronger numerical safeguards and tests.
+
 No parameter search is performed to force agreement with Table 1.
 
 ## Running the benchmarks
