@@ -127,9 +127,7 @@ def cholesky_rank_one(
         cosine = replacement / diagonal
         sine = work[index] / diagonal
         if index + 1 < work.size:
-            column = (
-                updated[index + 1 :, index] + sign * sine * work[index + 1 :]
-            ) / cosine
+            column = (updated[index + 1 :, index] + sign * sine * work[index + 1 :]) / cosine
             updated[index + 1 :, index] = column
             work[index + 1 :] = cosine * work[index + 1 :] - sine * column
 
