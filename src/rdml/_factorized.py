@@ -8,7 +8,6 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 FloatArray: TypeAlias = NDArray[np.float64]
-RankOneSign: TypeAlias = Literal[-1, 1]
 
 
 class FactorizationIllConditionedError(np.linalg.LinAlgError):
