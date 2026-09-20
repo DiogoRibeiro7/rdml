@@ -157,8 +157,21 @@ the fixed sweep. The factorization therefore fixes the explicit-inverse and
 singular-face mechanics, but it does not make badly scaled raw coordinates
 well-conditioned.
 
-This is still benchmark-only. The public estimator remains unchanged until the
-factorized path has stronger numerical safeguards and tests.
+The factorized algebra now lives in a private internal module,
+`rdml._factorized`, so strict Ruff, mypy, branch coverage, and unit tests can
+exercise the same primitives used by the benchmark. The internal helpers include
+an optional relative-diagonal conditioning guard,
+
+\[
+\frac{\min_i L_{ii}}{\max_i L_{ii}} \ge \tau,
+\]
+
+which raises explicitly when a requested threshold is crossed rather than
+silently continuing toward numerical singularity. No threshold is imposed by
+default yet; choosing \(\tau\) remains a methodological decision that needs
+evidence.
+
+The public estimator remains unchanged.
 
 No parameter search is performed to force agreement with Table 1.
 
